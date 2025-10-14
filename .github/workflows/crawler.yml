@@ -1,0 +1,72 @@
+# .github/workflows/crawler.yml
+name: crawler
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *" # run daily at 03:00 UTC (adjust as needed)
+
+jobs:
+  crawl-stars:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..20}; do
+            pg_isready -h localhost -p 5432 -U postgres && break
+            echo "waiting for postgres..."
+            sleep 2
+          done
+
+      - name: Setup Postgres schema
+        env:
+          PGPASSWORD: ${{ job.services.postgres.credentials.password }}
+        run: |
+          psql -h localhost -U postgres -d postgres -f schema.sql
+
+      - name: Run crawler (uses GITHUB_TOKEN)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # default token available in workflow
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: |
+          node src/index.js
+
+      - name: Dump stars_snapshots to CSV
+        env:
+          PGPASSWORD: ${{ job.services.postgres.credentials.password }}
+        run: |
+          mkdir -p output
+          psql -h localhost -U postgres -d postgres -c "\copy (SELECT r.full_name, s.snapshot_date, s.stargazers_count FROM stars_snapshots s JOIN repositories r ON r.id = s.repository_id ORDER BY s.snapshot_date DESC) TO 'output/stars.csv' WITH CSV HEADER;"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stars-csv
+          path: output/stars.csv
