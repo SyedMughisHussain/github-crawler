@@ -7,7 +7,6 @@ dotenv.config();
 async function main() {
   try {
     await runCrawler({
-      // configure via environment variables or defaults
       GITHUB_GRAPHQL_URL:
         process.env.GITHUB_GRAPHQL_URL || "https://api.github.com/graphql",
       GITHUB_TOKEN:

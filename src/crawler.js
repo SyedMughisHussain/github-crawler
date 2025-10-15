@@ -1,17 +1,6 @@
-// src/crawler.js
 import fetch from "node-fetch";
 import { Client } from "pg";
 
-/**
- * runCrawler(opts)
- * opts: {
- *   GITHUB_GRAPHQL_URL,
- *   GITHUB_TOKEN,
- *   PG_CONNECTION_STRING,
- *   TARGET_REPOS,
- *   PAGE_SIZE
- * }
- */
 export async function runCrawler(opts = {}) {
   const {
     GITHUB_GRAPHQL_URL = "https://api.github.com/graphql",
@@ -31,7 +20,6 @@ export async function runCrawler(opts = {}) {
   await pg.connect();
 
   try {
-    // ensure schema exists
     const schemaSql = await import("fs").then((fs) =>
       fs.promises.readFile(new URL("../schema.sql", import.meta.url), "utf8")
     );
@@ -41,9 +29,6 @@ export async function runCrawler(opts = {}) {
     let afterCursor = null;
     const pageSize = Math.min(PAGE_SIZE, 100);
 
-    // We'll use the search API to fetch repositories. The search query can be broad to fetch many repos.
-    // Example query: "is:public" but the search API requires a qualifier; we use "stars:>0" to avoid zero-star junk.
-    // Note: search returns results ordered by "best match" by default; paging across very large sets may repeat/skip — for a production system we'd use multiple ranking criteria and parallel workers.
     const searchQuery = "stars:>0";
 
     while (collected < TARGET_REPOS) {
@@ -56,7 +41,6 @@ export async function runCrawler(opts = {}) {
         buildSearchQuery(take, afterCursor, searchQuery)
       );
 
-      // Rate-limit info if present
       if (headers) {
         const rl = {
           limit: headers.get("x-ratelimit-limit"),
@@ -79,7 +63,6 @@ export async function runCrawler(opts = {}) {
 
       for (const edge of edges) {
         const repo = edge.node;
-        // Upsert repository metadata
         const repoRes = await upsertRepository(pg, {
           github_id: repo.databaseId ?? null,
           full_name: `${repo.owner.login}/${repo.name}`,
@@ -95,7 +78,6 @@ export async function runCrawler(opts = {}) {
           last_crawled_at: new Date().toISOString(),
         });
 
-        // Insert star snapshot
         await pg.query(
           `INSERT INTO stars_snapshots (repository_id, snapshot_date, stargazers_count)
            VALUES ($1, now(), $2)`,
@@ -106,7 +88,6 @@ export async function runCrawler(opts = {}) {
         if (collected >= TARGET_REPOS) break;
       }
 
-      // pagination: get endCursor
       const pageInfo = data.search.pageInfo;
       if (!pageInfo.hasNextPage) {
         console.log("Reached end of search results.");
@@ -114,9 +95,6 @@ export async function runCrawler(opts = {}) {
       }
       afterCursor = pageInfo.endCursor;
 
-      // Gentle delay if rate remaining low
-      // If remaining token count is low we sleep until reset
-      // (GraphQL sometimes doesn't return headers; we handle both cases)
       const remainingHeader = headers
         ? headers.get("x-ratelimit-remaining")
         : null;
@@ -132,8 +110,7 @@ export async function runCrawler(opts = {}) {
         );
         await sleep(waitMs);
       } else {
-        // small sleep per-page to be polite
-        await sleep(300); // 300ms between pages (tune as needed)
+        await sleep(300);
       }
     }
 
@@ -143,7 +120,6 @@ export async function runCrawler(opts = {}) {
   }
 }
 
-/* Helper: execute GraphQL with retry/backoff */
 async function graphqlRequestWithRetry(url, token, body, maxAttempts = 6) {
   let attempt = 0;
   let lastErr = null;
@@ -171,7 +147,6 @@ async function graphqlRequestWithRetry(url, token, body, maxAttempts = 6) {
 
       if (!res.ok) {
         lastErr = new Error(`HTTP ${res.status}: ${text}`);
-        // check for abuse or secondary rate limit; exponential backoff
         const backoff = Math.min(2000 * Math.pow(2, attempt), 30000);
         await sleep(backoff + Math.random() * 200);
         continue;
@@ -179,13 +154,11 @@ async function graphqlRequestWithRetry(url, token, body, maxAttempts = 6) {
 
       if (json && json.errors && json.errors.length > 0) {
         lastErr = new Error("GraphQL errors: " + JSON.stringify(json.errors));
-        // If it's a rate limit error inside the payload, backoff
         const backoff = Math.min(2000 * Math.pow(2, attempt), 30000);
         await sleep(backoff + Math.random() * 200);
         continue;
       }
 
-      // Return data plus access to headers (res.headers)
       return { data: json.data, headers: res.headers };
     } catch (err) {
       lastErr = err;
@@ -196,10 +169,7 @@ async function graphqlRequestWithRetry(url, token, body, maxAttempts = 6) {
   throw lastErr;
 }
 
-/* Helper: build GraphQL query for repository search */
 function buildSearchQuery(first = 100, after = null, q = "stars:>0") {
-  // Query the repository fields we need
-  // Note: GraphQL "search" returns nodes typed; we request repository fields.
   const cursorPart = after ? `, after: "${after}"` : "";
   return `
     query {
@@ -227,7 +197,6 @@ function buildSearchQuery(first = 100, after = null, q = "stars:>0") {
   `;
 }
 
-/* Upsert repository metadata into repositories table; return row including id */
 async function upsertRepository(pg, repo) {
   const {
     github_id,
@@ -241,7 +210,6 @@ async function upsertRepository(pg, repo) {
     updated_at,
     last_crawled_at,
   } = repo;
-  // We use INSERT ... ON CONFLICT to upsert on full_name
   const q = `
     INSERT INTO repositories (github_id, full_name, name, owner, url, description, primary_language, created_at, updated_at, last_crawled_at)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)

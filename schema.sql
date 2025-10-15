@@ -1,9 +1,8 @@
--- schema.sql
--- Primary metadata table
+
 CREATE TABLE IF NOT EXISTS repositories (
   id BIGSERIAL PRIMARY KEY,
-  github_id BIGINT UNIQUE NOT NULL,       -- GitHub GraphQL id (numeric if available)
-  full_name TEXT NOT NULL UNIQUE,         -- owner/name
+  github_id BIGINT UNIQUE NOT NULL,       
+  full_name TEXT NOT NULL UNIQUE,         
   name TEXT NOT NULL,
   owner TEXT NOT NULL,
   url TEXT,
@@ -14,7 +13,6 @@ CREATE TABLE IF NOT EXISTS repositories (
   last_crawled_at TIMESTAMPTZ
 );
 
--- Time-series of star counts (append-only)
 CREATE TABLE IF NOT EXISTS stars_snapshots (
   id BIGSERIAL PRIMARY KEY,
   repository_id BIGINT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
@@ -23,7 +21,6 @@ CREATE TABLE IF NOT EXISTS stars_snapshots (
   UNIQUE(repository_id, snapshot_date)   -- optional: prevents duplicate per-run snapshots
 );
 
--- Optional: small metadata table for flexible adding of other fields
 CREATE TABLE IF NOT EXISTS repo_extra (
   id BIGSERIAL PRIMARY KEY,
   repository_id BIGINT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
