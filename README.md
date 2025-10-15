@@ -1,29 +1,47 @@
-# GitHub Stars Crawler (GitHub Actions + PostgreSQL)
+# GitHub Stars Crawler (GitHub Actions Only)
 
-This project automatically crawls GitHub’s GraphQL API to collect **star counts across public repositories** and stores them in **PostgreSQL** during a **GitHub Actions workflow run**.
-
-At the end of each run, the data is **exported as a CSV file**, which can be **downloaded directly from the GitHub Actions Artifacts panel** — **no local database or runtime setup required**.
+This project collects GitHub repository star counts using the GitHub GraphQL API. It runs entirely in GitHub Actions and stores data temporarily in PostgreSQL during the workflow. After each run, results are exported as a CSV file.
 
 ---
 
-## 🚀 How It Works
+## How to Download the CSV Output
 
-When the GitHub Actions workflow runs:
-
-1. A **temporary PostgreSQL service** is started inside the GitHub runner
-2. The crawler script fetches repository star counts using the **GitHub GraphQL API**
-3. Results are saved to Postgres and then exported to **CSV format**
-4. The CSV file is **uploaded as a downloadable GitHub Artifact**
+1. Go to your GitHub repository and open the **Actions** tab.
+2. Select the latest workflow run named `crawler`.
+3. Scroll down to the **Artifacts** section.
+4. Click on `stars-csv` to download the ZIP file containing `stars.csv`.
 
 ---
 
-## 📥 How to Download the CSV File
+## Future Implementation
 
-Once a workflow run completes:
+To evolve beyond star counts, additional metadata can be collected using append-only tables:
 
-1. Go to **GitHub → Your Repository → Actions**
-2. Click the latest workflow run named **`crawler`**
-3. Scroll to the **Artifacts** section
-4. Click **`stars-csv` → Download**
+| Data Type             | Storage Strategy                        |
+| --------------------- | --------------------------------------- |
+| Issues                | `issues` table with upsert by GitHub ID |
+| Issue Comments        | Insert-only `issue_comments` table      |
+| Pull Requests         | `pull_requests` table                   |
+| PR Comments / Reviews | Insert-only `pr_comments`, `pr_reviews` |
+| CI Checks             | Event-based `ci_events` table           |
 
-You will receive a **ZIP file**, which contains:
+Updates should append new rows rather than overwrite existing ones to minimize write operations and retain history.
+
+---
+
+## Scaling Strategy (From 100,000 to 500 Million Repositories)
+
+To handle large-scale crawling:
+
+| Challenge        | Approach                                                                               |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| API Rate Limits  | Use multiple GitHub tokens in parallel with centralized rate limiting                  |
+| Database Storage | Move from single Postgres to sharded Postgres or data warehouse (ClickHouse, BigQuery) |
+| Runtime          | Use checkpointing and segmented crawls                                                 |
+| Cold Storage     | Archive older or inactive repositories to object storage (S3, GCS, Azure Blob)         |
+
+Cloud storage support for CSV exports can be added via AWS CLI, `gsutil`, or Azure CLI inside the workflow.
+
+---
+
+This repository is designed to run entirely within GitHub Actions without requiring local setup. Data is accessed only through workflow artifacts.
